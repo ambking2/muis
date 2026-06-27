@@ -1,234 +1,369 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import {
-  ChevronDown,
-  Heart,
-  Home,
-  Loader2,
-  Music2,
-  Pause,
-  Play,
-  Search,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  Sparkles,
-  Volume2,
-  X,
-  Globe,
-  Check,
-  Zap,
-} from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
-  searchTracks,
-  getPlayInfo,
-  fetchCover,
-  constructCover,
-  type GdTrack,
-  type Source,
-  type QualityKey,
-  type PlayInfo,
+  ChevronDown, Heart, Home, Loader2, Mic2, Music2,
+  Pause, Play, Repeat, Search, SkipBack, SkipForward,
+  Shuffle, Sparkles, Volume2, X, ListMusic, Clock, ArrowLeft,
+} from "lucide-react";
+import {
+  searchTracks, getPlayInfo, fetchCover, constructCover,
+  type GdTrack, type Source, type QualityKey, type PlayInfo,
 } from "./lib/gdstudio";
 
-type View = "home" | "search";
+// ── Types ────────────────────────────────────────────────────────────────────
+type View = "home" | "search" | "artist" | "queue" | "history" | "favorites";
 
-const SOURCES: { id: Source; name: string; icon: string; note?: string }[] = [
-  { id: "netease", name: "نت‌ایز (پخش مطمئن)", icon: "🎶", note: "توصیه‌شده" },
-  { id: "kuwo", name: "کووو", icon: "🎧" },
-  { id: "joox", name: "جاکس", icon: "🎵" },
-  { id: "tencent", name: "کیو‌کیو", icon: "🎼" },
+// ── Constants ────────────────────────────────────────────────────────────────
+const SOURCES: { id: Source; name: string; icon: string }[] = [
+  { id: "netease", name: "نت‌ایز", icon: "🎶" },
+  { id: "kuwo",    name: "کووو",   icon: "🎧" },
+  { id: "joox",    name: "جاکس",   icon: "🎵" },
+  { id: "tencent", name: "کیوکیو", icon: "🎼" },
 ];
 
-const QUALITIES: { key: QualityKey; label: string; br: number }[] = [
-  { key: "128", label: "۱۲۸", br: 128 },
-  { key: "320", label: "۳۲۰", br: 320 },
-  { key: "flac", label: "FLAC", br: 999 },
-];
-
-// خواننده‌های ایرانی برای صفحه اصلی (جستجو در نت‌ایز)
-const IRANIAN_ARTISTS = [
-  "Dariush", "Googoosh", "Ebi", "Hayedeh", "Morteza", "Sattar",
-  "Mohsen Namjoo", "Homayoun Shajarian", "Reza Sadeghi", "Maziar",
-  "Aref", "Vigen", "Mahasti", "Leila Forouhar", "Andy", "Kourosh",
+const QUALITIES: { key: QualityKey; label: string }[] = [
+  { key: "128",  label: "۱۲۸" },
+  { key: "320",  label: "۳۲۰" },
+  { key: "flac", label: "FLAC" },
 ];
 
 const QUICK_TAGS = [
-  { label: "داریوش", query: "Dariush" },
-  { label: "گوگوش", query: "Googoosh" },
-  { label: "ابی", query: "Ebi" },
-  { label: "هایده", query: "Hayedeh" },
-  { label: "مرتضی", query: "Morteza" },
-  { label: "ستار", query: "Sattar" },
-  { label: "نمجو", query: "Mohsen Namjoo" },
-  { label: "ویگن", query: "Vigen" },
+  { label: "داریوش",    query: "Dariush" },
+  { label: "گوگوش",    query: "Googoosh" },
+  { label: "ابی",       query: "Ebi" },
+  { label: "هایده",    query: "Hayedeh" },
+  { label: "ستار",     query: "Sattar" },
+  { label: "نمجو",     query: "Mohsen Namjoo" },
+  { label: "مازیار",   query: "Maziar" },
+  { label: "ویگن",     query: "Vigen" },
 ];
 
-const glass =
-  "border border-white/20 bg-white/[0.11] shadow-[inset_0_1px_0_rgba(255,255,255,0.28),0_20px_70px_rgba(0,0,0,0.35)] backdrop-blur-3xl";
-
-const FALLBACK_GRADIENTS = [
-  "from-rose-500 via-pink-500 to-purple-600",
-  "from-amber-400 via-orange-500 to-rose-500",
-  "from-cyan-400 via-blue-500 to-indigo-600",
-  "from-emerald-400 via-teal-500 to-cyan-600",
-  "from-fuchsia-500 via-purple-500 to-blue-600",
-  "from-yellow-400 via-amber-500 to-orange-600",
+const HOME_ARTISTS = [
+  "Dariush", "Googoosh", "Ebi", "Hayedeh", "Morteza",
+  "Sattar", "Mohsen Namjoo", "Homayoun Shajarian",
+  "Reza Sadeghi", "Maziar", "Vigen", "Mahasti",
 ];
 
-function gradFor(id: string) {
+const ARTIST_META: { query: string; label: string; genre: string }[] = [
+  { query: "Dariush",          label: "داریوش",          genre: "پاپ کلاسیک" },
+  { query: "Googoosh",         label: "گوگوش",           genre: "پاپ" },
+  { query: "Ebi",              label: "ابی",              genre: "پاپ کلاسیک" },
+  { query: "Hayedeh",          label: "هایده",            genre: "سنتی" },
+  { query: "Sattar",           label: "ستار",             genre: "پاپ" },
+  { query: "Mohsen Namjoo",    label: "محسن نامجو",      genre: "راک / تجربی" },
+  { query: "Reza Sadeghi",     label: "رضا صادقی",       genre: "پاپ" },
+  { query: "Maziar",           label: "مازیار",           genre: "پاپ" },
+];
+
+const GRADIENTS = [
+  ["#6366f1", "#8b5cf6", "#a855f7"],
+  ["#ec4899", "#f43f5e", "#fb7185"],
+  ["#06b6d4", "#3b82f6", "#6366f1"],
+  ["#10b981", "#06b6d4", "#3b82f6"],
+  ["#f59e0b", "#f97316", "#ef4444"],
+  ["#8b5cf6", "#ec4899", "#f43f5e"],
+];
+
+function getGrad(id: string) {
   let h = 0;
   for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
-  return FALLBACK_GRADIENTS[h % FALLBACK_GRADIENTS.length];
+  return GRADIENTS[h % GRADIENTS.length];
 }
 
-function formatTime(sec: number) {
-  if (!sec || !Number.isFinite(sec)) return "0:00";
-  const m = Math.floor(sec / 60);
-  const s = String(Math.floor(sec % 60)).padStart(2, "0");
-  return `${m}:${s}`;
+function fmt(s: number) {
+  if (!s || !isFinite(s)) return "0:00";
+  return `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 }
 
-function qualityLabel(br: number): string {
+function qualLabel(br: number) {
   if (br >= 700) return "FLAC";
-  if (br >= 320) return "۳۲۰";
-  if (br >= 192) return "۱۹۲";
-  return "۱۲۸";
+  if (br >= 320) return "320";
+  return "128";
 }
 
-// تصویر کاور با lazy fetch + cache
-function Cover({
-  track,
-  className,
-  rounded = "rounded-2xl",
+// ── Cover Art ────────────────────────────────────────────────────────────────
+function CoverArt({
+  track, size = 56, radius = 14, className = "",
 }: {
-  track: GdTrack;
-  className?: string;
-  rounded?: string;
+  track: GdTrack; size?: number; radius?: number; className?: string;
 }) {
   const [url, setUrl] = useState<string | null>(() => constructCover(track.source, track.pic_id));
-  const [failed, setFailed] = useState(false);
+  const [err, setErr] = useState(false);
 
   useEffect(() => {
-    let active = true;
+    let alive = true;
     const direct = constructCover(track.source, track.pic_id);
-    if (direct) {
-      setUrl(direct);
-      return;
-    }
+    if (direct) { setUrl(direct); return; }
     setUrl(null);
-    fetchCover(track).then((u) => {
-      if (active && u) setUrl(u);
-    });
-    return () => {
-      active = false;
-    };
+    fetchCover(track).then(u => { if (alive && u) setUrl(u); });
+    return () => { alive = false; };
   }, [track.source, track.pic_id]);
 
-  if (!url || failed) {
+  const g = getGrad(track.url_id);
+  const style: React.CSSProperties = { width: size, height: size, borderRadius: radius, flexShrink: 0, objectFit: "cover" };
+
+  if (!url || err) {
     return (
-      <div className={`${rounded} bg-gradient-to-br ${gradFor(track.id)} ${className ?? ""} relative overflow-hidden`}>
-        <Music2 className="absolute left-1/2 top-1/2 h-7 w-7 -translate-x-1/2 -translate-y-1/2 text-white/40" />
+      <div className={`flex items-center justify-center ${className}`}
+        style={{ ...style, background: `linear-gradient(135deg,${g[0]},${g[1]},${g[2]})` }}>
+        <Music2 size={size * 0.35} color="rgba(255,255,255,0.7)" />
       </div>
     );
   }
-
   return (
-    <img
-      src={url}
-      alt={track.name}
-      loading="lazy"
-      onError={() => setFailed(true)}
-      className={`${rounded} object-cover ${className ?? ""}`}
-    />
+    <img src={url} alt={track.name} onError={() => setErr(true)}
+      className={className} style={style} />
   );
 }
 
-function App() {
-  const [view, setView] = useState<View>("home");
-  const [homeTracks, setHomeTracks] = useState<GdTrack[]>([]);
-  const [results, setResults] = useState<GdTrack[]>([]);
-  const [query, setQuery] = useState("");
-  const [source, setSource] = useState<Source>("netease");
-  const [loadingHome, setLoadingHome] = useState(true);
+// ── Toast ─────────────────────────────────────────────────────────────────────
+function Toast({ msg }: { msg: string | null }) {
+  return (
+    <AnimatePresence>
+      {msg && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 20 }}
+          className="fixed z-[99] left-1/2 -translate-x-1/2 bottom-28 rounded-full px-5 py-2.5 text-sm font-medium text-white pointer-events-none whitespace-nowrap"
+          style={{ background: "rgba(255,255,255,0.16)", backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.22)" }}>
+          {msg}
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+// ── Track Row ────────────────────────────────────────────────────────────────
+function TrackRow({
+  track, index, isCurrent, isPlaying, isFav, onPlay, onFav, accent,
+}: {
+  track: GdTrack; index: number; isCurrent: boolean; isPlaying: boolean;
+  isFav: boolean; onPlay: () => void; onFav: () => void; accent: string;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: index * 0.03, duration: 0.25 }}
+      onClick={onPlay}
+      className="flex items-center gap-3 rounded-[18px] p-3 mb-2 cursor-pointer active:scale-[0.98] transition-transform"
+      style={{
+        background: isCurrent ? `${accent}28` : "rgba(255,255,255,0.04)",
+        border: `1px solid ${isCurrent ? accent + "55" : "rgba(255,255,255,0.07)"}`,
+      }}>
+      <div className="relative shrink-0">
+        <CoverArt track={track} size={48} radius={12} />
+        {isCurrent && (
+          <div className="absolute inset-0 flex items-center justify-center rounded-xl"
+            style={{ background: "rgba(0,0,0,0.48)" }}>
+            {isPlaying
+              ? <Pause size={16} fill="white" color="white" />
+              : <Play size={16} fill="white" color="white" />}
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold truncate"
+          style={{ color: isCurrent ? accent : "white" }}>{track.name}</p>
+        <p className="text-xs truncate mt-0.5" style={{ color: "rgba(255,255,255,0.45)" }}>
+          {track.artist} · {track.source}
+        </p>
+      </div>
+      <button onClick={e => { e.stopPropagation(); onFav(); }}
+        className="w-[34px] h-[34px] rounded-full flex items-center justify-center shrink-0"
+        style={{ background: "rgba(255,255,255,0.07)" }}>
+        <Heart size={15} fill={isFav ? "#f43f5e" : "none"} color={isFav ? "#f43f5e" : "rgba(255,255,255,0.4)"} />
+      </button>
+    </motion.div>
+  );
+}
+
+// ── Main App ──────────────────────────────────────────────────────────────────
+export default function App() {
+  const [view, setView]                   = useState<View>("home");
+  const [source, setSource]               = useState<Source>("netease");
+  const [homeTracks, setHomeTracks]       = useState<GdTrack[]>([]);
+  const [searchResults, setSearchResults] = useState<GdTrack[]>([]);
+  const [artistTracks, setArtistTracks]   = useState<GdTrack[]>([]);
+  const [selArtist, setSelArtist]         = useState<typeof ARTIST_META[0] | null>(null);
+  const [query, setQuery]                 = useState("");
+  const [current, setCurrent]             = useState<GdTrack | null>(null);
+  const [playInfo, setPlayInfo]           = useState<PlayInfo | null>(null);
+  const [quality, setQuality]             = useState<QualityKey>("128");
+  const [playing, setPlaying]             = useState(false);
+  const [loadingUrl, setLoadingUrl]       = useState(false);
+  const [loadingHome, setLoadingHome]     = useState(true);
   const [loadingSearch, setLoadingSearch] = useState(false);
+  const [loadingArtist, setLoadingArtist] = useState(false);
+  const [progress, setProgress]           = useState(0);
+  const [curTime, setCurTime]             = useState(0);
+  const [duration, setDuration]           = useState(0);
+  const [favorites, setFavorites]         = useState<GdTrack[]>(() => {
+    try { return JSON.parse(localStorage.getItem("nova_fav_v2") || "[]"); } catch { return []; }
+  });
+  const [queue, setQueue]                 = useState<GdTrack[]>([]);
+  const [history, setHistory]             = useState<GdTrack[]>(() => {
+    try { return JSON.parse(localStorage.getItem("nova_hist_v2") || "[]"); } catch { return []; }
+  });
+  const [showFull, setShowFull]           = useState(false);
+  const [showLyrics, setShowLyrics]       = useState(false);
+  const [shuffle, setShuffle]             = useState(false);
+  const [repeat, setRepeat]               = useState(false);
+  const [vol, setVol]                     = useState(80);
+  const [toast, setToast]                 = useState<string | null>(null);
   const [showSourcePicker, setShowSourcePicker] = useState(false);
 
-  const [current, setCurrent] = useState<GdTrack | null>(null);
-  const [playInfo, setPlayInfo] = useState<PlayInfo | null>(null);
-  const [quality, setQuality] = useState<QualityKey>("128");
-  const [playing, setPlaying] = useState(false);
-  const [loadingUrl, setLoadingUrl] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(0);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
-  const [favorites, setFavorites] = useState<GdTrack[]>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("nova_fav_gd") || "[]");
-    } catch {
-      return [];
-    }
-  });
-  const [toast, setToast] = useState<string | null>(null);
-
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const searchRef = useRef<HTMLInputElement | null>(null);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    window.clearTimeout(window.__novaToast);
-    window.__novaToast = window.setTimeout(() => setToast(null), 2600);
+  const showToast = useCallback((m: string) => {
+    setToast(m);
+    setTimeout(() => setToast(null), 2400);
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem("nova_fav_gd", JSON.stringify(favorites));
-  }, [favorites]);
+  const favIds   = useMemo(() => new Set(favorites.map(f => f.url_id)), [favorites]);
+  const bgGrad   = current ? getGrad(current.url_id) : ["#312e81", "#1e3a5f", "#0f3460"];
+  const curSource = SOURCES.find(s => s.id === source) ?? SOURCES[0];
 
-  // بارگذاری صفحه اصلی — خواننده‌های ایرانی از نت‌ایز
+  // Persist favs & history
   useEffect(() => {
-    let ignore = false;
-    async function loadHome() {
+    localStorage.setItem("nova_fav_v2", JSON.stringify(favorites));
+  }, [favorites]);
+  useEffect(() => {
+    localStorage.setItem("nova_hist_v2", JSON.stringify(history));
+  }, [history]);
+
+  // Volume sync
+  useEffect(() => {
+    if (audioRef.current) audioRef.current.volume = vol / 100;
+  }, [vol]);
+
+  // ── Load home tracks ──────────────────────────────────────────────────────
+  useEffect(() => {
+    let alive = true;
+    async function load() {
       try {
-        const shuffled = [...IRANIAN_ARTISTS].sort(() => Math.random() - 0.5).slice(0, 8);
+        const shuffled = [...HOME_ARTISTS].sort(() => Math.random() - 0.5).slice(0, 6);
         const collected: GdTrack[] = [];
         for (const artist of shuffled) {
           if (collected.length >= 24) break;
-          const list = await searchTracks(artist, "netease", 6);
-          if (!ignore) {
-            collected.push(...list.filter((t) => t.pic_id || true));
-          }
+          const list = await searchTracks(artist, "netease", 5);
+          if (alive) collected.push(...list);
         }
-        // حذف تکراری
-        const unique = Array.from(new Map(collected.map((t) => [t.url_id, t])).values());
-        if (!ignore && unique.length > 0) {
-          setHomeTracks(unique.sort(() => Math.random() - 0.5).slice(0, 30));
-        }
+        const unique = Array.from(new Map(collected.map(t => [t.url_id, t])).values());
+        if (alive && unique.length) setHomeTracks(unique.sort(() => Math.random() - 0.5).slice(0, 28));
       } catch {
-        if (!ignore) showToast("اتصال به سرور ناموفق بود.");
+        if (alive) showToast("اتصال به سرور ناموفق بود.");
       } finally {
-        if (!ignore) setLoadingHome(false);
+        if (alive) setLoadingHome(false);
       }
     }
-    loadHome();
-    return () => {
-      ignore = true;
-    };
+    load();
+    return () => { alive = false; };
   }, [showToast]);
 
-  const favoriteIds = useMemo(() => new Set(favorites.map((f) => f.url_id)), [favorites]);
-  const heroTrack = homeTracks[0] || null;
-  const listSource = view === "search" ? results : homeTracks;
+  // ── Audio events ──────────────────────────────────────────────────────────
+  function onTimeUpdate() {
+    const a = audioRef.current;
+    if (!a || !isFinite(a.duration)) return;
+    setCurTime(a.currentTime);
+    setProgress((a.currentTime / a.duration) * 100);
+  }
+  function onLoadedMeta() {
+    if (audioRef.current) setDuration(audioRef.current.duration);
+  }
+  function onEnded() {
+    setPlaying(false);
+    if (repeat && current) { resolveAndPlay(current, quality); return; }
+    playNext(1);
+  }
 
-  async function runSearch(term = query) {
-    const clean = term.trim();
-    if (!clean) return;
+  // ── Resolve & play ────────────────────────────────────────────────────────
+  async function resolveAndPlay(track: GdTrack, q: QualityKey, resumeAt?: number) {
+    setLoadingUrl(true);
+    const info = await getPlayInfo(track.source, track.url_id, q);
+    setLoadingUrl(false);
+    if (!info) { showToast("پخش این آهنگ ممکن نشد."); return false; }
+    setPlayInfo(info);
+    const audio = audioRef.current;
+    if (!audio) return true;
+    audio.src = info.url;
+    audio.onloadedmetadata = () => {
+      if (resumeAt && isFinite(resumeAt)) {
+        try { audio.currentTime = Math.min(resumeAt, audio.duration - 1); } catch { /* */ }
+      }
+      audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    };
+    if (!resumeAt) {
+      setProgress(0); setCurTime(0);
+    }
+    return true;
+  }
+
+  async function playTrack(track: GdTrack) {
+    if (current?.url_id === track.url_id) { togglePlay(); return; }
+    setCurrent(track);
+    setPlayInfo(null);
+    setQuality("128");
+    setPlaying(false);
+    // update queue & history
+    setQueue(prev => [track, ...prev.filter(t => t.url_id !== track.url_id)]);
+    setHistory(prev => [track, ...prev.filter(t => t.url_id !== track.url_id)].slice(0, 50));
+    await resolveAndPlay(track, "128");
+  }
+
+  function togglePlay() {
+    const audio = audioRef.current;
+    if (!audio || !current || !playInfo) return;
+    if (playing) { audio.pause(); setPlaying(false); }
+    else { audio.play().then(() => setPlaying(true)).catch(() => showToast("پخش انجام نشد.")); }
+  }
+
+  async function changeQuality(q: QualityKey) {
+    if (!current || q === quality) return;
+    const t = audioRef.current?.currentTime ?? 0;
+    setQuality(q);
+    showToast(`کیفیت ${q === "flac" ? "FLAC" : q} در حال بارگذاری...`);
+    await resolveAndPlay(current, q, t > 1 ? t : undefined);
+  }
+
+  function seek(pct: number) {
+    const audio = audioRef.current;
+    if (!audio || !isFinite(audio.duration)) return;
+    const t = (pct / 100) * audio.duration;
+    audio.currentTime = t;
+    setProgress(pct);
+    setCurTime(t);
+  }
+
+  function playNext(dir: 1 | -1) {
+    if (!current) return;
+    const list = queue.length > 1 ? queue : homeTracks;
+    if (!list.length) return;
+    let idx = list.findIndex(t => t.url_id === current.url_id);
+    if (shuffle) idx = Math.floor(Math.random() * list.length);
+    else idx = (idx + dir + list.length) % list.length;
+    playTrack(list[idx]);
+  }
+
+  function toggleFav(track: GdTrack) {
+    setFavorites(prev => {
+      if (prev.some(f => f.url_id === track.url_id)) {
+        showToast("از علاقه‌مندی‌ها حذف شد");
+        return prev.filter(f => f.url_id !== track.url_id);
+      }
+      showToast("به علاقه‌مندی‌ها اضافه شد ❤️");
+      return [track, ...prev];
+    });
+  }
+
+  // ── Search ────────────────────────────────────────────────────────────────
+  async function doSearch(q: string) {
+    if (!q.trim()) return;
     setView("search");
     setLoadingSearch(true);
     try {
-      const found = await searchTracks(clean, source, 40);
-      const unique = Array.from(new Map(found.map((t) => [t.url_id, t])).values());
-      setResults(unique);
-      if (unique.length === 0) showToast("نتیجه‌ای پیدا نشد.");
+      const res = await searchTracks(q, source, 40);
+      const unique = Array.from(new Map(res.map(t => [t.url_id, t])).values());
+      setSearchResults(unique);
+      if (!unique.length) showToast("نتیجه‌ای پیدا نشد.");
     } catch {
       showToast("خطا در جستجو.");
     } finally {
@@ -236,528 +371,557 @@ function App() {
     }
   }
 
-  async function resolveAndPlay(track: GdTrack, q: QualityKey, preserveTime?: number) {
-    setLoadingUrl(true);
-    const info = await getPlayInfo(track.source, track.url_id, q);
-    setLoadingUrl(false);
-
-    if (!info) {
-      showToast("پخش این آهنگ از این منبع ممکن نشد.");
-      return false;
-    }
-
-    setPlayInfo(info);
-    const audio = audioRef.current;
-    if (!audio) return true;
-
-    const wasPlaying = playing || preserveTime !== undefined;
-    const resumeAt = preserveTime ?? 0;
-
-    audio.src = info.url;
-    const onReady = () => {
-      if (resumeAt > 0 && Number.isFinite(resumeAt)) {
-        try {
-          audio.currentTime = Math.min(resumeAt, (audio.duration || resumeAt) - 1);
-        } catch {
-          /* ignore */
-        }
-      }
-      if (wasPlaying) {
-        audio.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-      }
-      audio.removeEventListener("loadedmetadata", onReady);
-    };
-    audio.addEventListener("loadedmetadata", onReady);
-
-    if (preserveTime === undefined) {
-      setProgress(0);
-      setCurrentTime(0);
-      audio
-        .play()
-        .then(() => setPlaying(true))
-        .catch(() => setPlaying(false));
-    }
-    return true;
-  }
-
-  async function playTrack(track: GdTrack) {
-    if (current?.url_id === track.url_id) {
-      togglePlay();
-      return;
-    }
-    setCurrent(track);
-    setQuality("128"); // پیش‌فرض ۱۲۸
-    setPlaying(true);
-    await resolveAndPlay(track, "128");
-  }
-
-  function togglePlay() {
-    const audio = audioRef.current;
-    if (!audio || !current || !playInfo) return;
-    if (playing) {
-      audio.pause();
-      setPlaying(false);
-    } else {
-      audio.play().then(() => setPlaying(true)).catch(() => showToast("پخش انجام نشد."));
+  // ── Load artist tracks ────────────────────────────────────────────────────
+  async function openArtist(artist: typeof ARTIST_META[0]) {
+    setSelArtist(artist);
+    setView("artist");
+    setArtistTracks([]);
+    setLoadingArtist(true);
+    try {
+      const res = await searchTracks(artist.query, "netease", 20);
+      setArtistTracks(Array.from(new Map(res.map(t => [t.url_id, t])).values()));
+    } catch {
+      showToast("بارگذاری آهنگ‌های خواننده ناموفق بود.");
+    } finally {
+      setLoadingArtist(false);
     }
   }
 
-  async function changeQuality(q: QualityKey) {
-    if (!current || q === quality) return;
-    const prevTime = audioRef.current?.currentTime ?? 0;
-    setQuality(q);
-    showToast(`کیفیت ${q === "flac" ? "FLAC" : q} در حال بارگذاری...`);
-    await resolveAndPlay(current, q, prevTime > 1 ? prevTime : undefined);
-  }
-
-  function seek(value: string) {
-    const audio = audioRef.current;
-    if (!audio || !Number.isFinite(audio.duration)) return;
-    const t = (Number(value) / 100) * audio.duration;
-    audio.currentTime = t;
-    setProgress(Number(value));
-    setCurrentTime(t);
-  }
-
-  function toggleFavorite(track: GdTrack) {
-    setFavorites((items) => {
-      if (items.some((f) => f.url_id === track.url_id)) {
-        showToast("از علاقه‌مندی‌ها حذف شد");
-        return items.filter((f) => f.url_id !== track.url_id);
-      }
-      showToast("به علاقه‌مندی‌ها اضافه شد ❤️");
-      return [track, ...items];
-    });
-  }
-
-  function playNext(dir: 1 | -1) {
-    if (!current || listSource.length === 0) return;
-    const idx = listSource.findIndex((t) => t.url_id === current.url_id);
-    const next = listSource[(idx + dir + listSource.length) % listSource.length];
-    if (next) playTrack(next);
-  }
-
-  const visibleTracks = view === "search" ? results : homeTracks.slice(0, 20);
-  const currentSource = SOURCES.find((s) => s.id === source) ?? SOURCES[0];
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div dir="rtl" className="min-h-screen overflow-hidden bg-[#06070b] text-white">
-      <audio
-        ref={audioRef}
-        onTimeUpdate={() => {
-          const a = audioRef.current;
-          if (!a || !Number.isFinite(a.duration)) return;
-          setProgress((a.currentTime / a.duration) * 100);
-          setCurrentTime(a.currentTime);
-        }}
-        onLoadedMetadata={() => {
-          if (audioRef.current) setDuration(audioRef.current.duration);
-        }}
-        onEnded={() => {
-          setPlaying(false);
-          playNext(1);
-        }}
-      />
+    <div dir="rtl" className="relative min-h-screen overflow-x-hidden select-none"
+      style={{ background: `linear-gradient(160deg,${bgGrad[0]}22,#06070b 38%)` }}>
 
-      {/* پس‌زمینه */}
-      <div className="pointer-events-none fixed inset-0">
-        <div className="absolute -top-28 right-[-20%] h-96 w-96 rounded-full bg-rose-500/20 blur-[100px]" />
-        <div className="absolute top-1/4 left-[-18%] h-[30rem] w-[30rem] rounded-full bg-amber-500/15 blur-[120px]" />
-        <div className="absolute bottom-0 right-1/4 h-72 w-72 rounded-full bg-emerald-400/10 blur-[100px]" />
+      {/* Ambient blobs */}
+      <div className="pointer-events-none fixed inset-0 overflow-hidden z-0">
+        <div className="absolute -top-40 -right-40 h-96 w-96 rounded-full opacity-20 blur-3xl transition-all duration-1000"
+          style={{ background: bgGrad[0] }} />
+        <div className="absolute top-1/2 -left-28 h-80 w-80 rounded-full opacity-15 blur-3xl transition-all duration-1000"
+          style={{ background: bgGrad[2] }} />
+        <div className="absolute -bottom-20 right-1/3 h-72 w-72 rounded-full opacity-10 blur-3xl transition-all duration-1000"
+          style={{ background: bgGrad[1] }} />
       </div>
 
+      <audio ref={audioRef}
+        onTimeUpdate={onTimeUpdate}
+        onLoadedMetadata={onLoadedMeta}
+        onEnded={onEnded} />
+
+      {/* ── Full Player ─────────────────────────────────────────────────── */}
       <AnimatePresence>
-        {toast && (
+        {showFull && current && (
           <motion.div
-            initial={{ opacity: 0, y: -20, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -20, scale: 0.96 }}
-            className={`${glass} fixed left-1/2 top-5 z-[60] -translate-x-1/2 rounded-full px-5 py-2.5 text-center text-sm`}
-          >
-            {toast}
+            initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}
+            transition={{ type: "spring", damping: 26, stiffness: 240 }}
+            className="fixed inset-0 z-50 flex flex-col overflow-hidden"
+            style={{ background: `linear-gradient(170deg,${bgGrad[0]}ee 0%,#06070bfa 58%)`, backdropFilter: "blur(40px)" }}>
+
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 pt-14 pb-2">
+              <button onClick={() => setShowFull(false)}
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,0.1)" }}>
+                <ChevronDown size={22} />
+              </button>
+              <div className="text-center">
+                <p className="text-[11px] text-white/45">در حال پخش</p>
+                <p className="text-sm font-semibold text-white/80">{current.artist}</p>
+              </div>
+              <button onClick={() => setShowLyrics(l => !l)}
+                className="w-10 h-10 rounded-full flex items-center justify-center"
+                style={{ background: showLyrics ? `${bgGrad[0]}88` : "rgba(255,255,255,0.1)" }}>
+                <Mic2 size={17} />
+              </button>
+            </div>
+
+            <AnimatePresence mode="wait">
+              {!showLyrics ? (
+                <motion.div key="player"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="flex flex-col items-center flex-1 px-8 pt-2 overflow-y-auto">
+
+                  {/* Album Art */}
+                  <motion.div
+                    animate={playing
+                      ? { scale: 1, boxShadow: `0 30px 80px ${bgGrad[0]}66` }
+                      : { scale: 0.87, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
+                    transition={{ duration: 0.4 }}
+                    className="mt-4 overflow-hidden" style={{ borderRadius: 28 }}>
+                    <CoverArt track={current} size={268} radius={28} />
+                  </motion.div>
+
+                  {/* Info */}
+                  <div className="mt-7 w-full flex items-center justify-between">
+                    <div>
+                      <h2 className="text-[22px] font-bold text-white leading-tight">{current.name}</h2>
+                      <p className="text-sm text-white/55 mt-1">{current.artist}</p>
+                    </div>
+                    <button onClick={() => toggleFav(current)}
+                      className="w-11 h-11 rounded-full flex items-center justify-center"
+                      style={{ background: "rgba(255,255,255,0.08)" }}>
+                      <Heart size={22} fill={favIds.has(current.url_id) ? "#f43f5e" : "none"}
+                        color={favIds.has(current.url_id) ? "#f43f5e" : "rgba(255,255,255,0.7)"} />
+                    </button>
+                  </div>
+
+                  {/* Quality & bitrate */}
+                  <div className="mt-3 w-full flex items-center gap-2">
+                    {QUALITIES.map(q => (
+                      <button key={q.key} onClick={() => changeQuality(q.key)}
+                        disabled={loadingUrl}
+                        className="rounded-full px-3 py-1 text-[11px] font-bold transition-all disabled:opacity-50"
+                        style={{
+                          background: quality === q.key ? bgGrad[0] : "rgba(255,255,255,0.08)",
+                          color: quality === q.key ? "white" : "rgba(255,255,255,0.4)",
+                          border: quality === q.key ? `1px solid ${bgGrad[0]}` : "1px solid rgba(255,255,255,0.1)",
+                        }}>{q.label}</button>
+                    ))}
+                    {playInfo && (
+                      <span className="mr-auto text-[11px] font-bold text-white/35">
+                        {qualLabel(playInfo.br)} kbps
+                      </span>
+                    )}
+                    {loadingUrl && <Loader2 size={14} className="animate-spin text-white/40 mr-auto" />}
+                  </div>
+
+                  {/* Progress */}
+                  <div className="mt-5 w-full">
+                    <div className="relative h-1.5 rounded-full cursor-pointer"
+                      style={{ background: "rgba(255,255,255,0.12)" }}
+                      onClick={e => {
+                        const r = e.currentTarget.getBoundingClientRect();
+                        seek(((e.clientX - r.left) / r.width) * 100);
+                      }}>
+                      <div className="absolute inset-y-0 left-0 rounded-full transition-all"
+                        style={{ width: `${progress}%`, background: `linear-gradient(90deg,${bgGrad[0]},${bgGrad[1]})` }} />
+                    </div>
+                    <div className="flex justify-between mt-1.5 text-[11px] text-white/35">
+                      <span>{fmt(curTime)}</span><span>{fmt(duration)}</span>
+                    </div>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="mt-4 w-full flex items-center justify-between">
+                    <button onClick={() => { setShuffle(s => !s); showToast(shuffle ? "شافل خاموش" : "شافل روشن"); }}>
+                      <Shuffle size={20} color={shuffle ? bgGrad[0] : "rgba(255,255,255,0.35)"} />
+                    </button>
+                    <button onClick={() => playNext(-1)}
+                      className="w-12 h-12 rounded-full flex items-center justify-center"
+                      style={{ background: "rgba(255,255,255,0.1)" }}>
+                      <SkipBack size={22} />
+                    </button>
+                    <button onClick={togglePlay}
+                      className="w-16 h-16 rounded-full flex items-center justify-center shadow-2xl"
+                      style={{ background: `linear-gradient(135deg,${bgGrad[0]},${bgGrad[1]})`, boxShadow: `0 8px 32px ${bgGrad[0]}80` }}>
+                      {loadingUrl
+                        ? <Loader2 size={26} className="animate-spin" />
+                        : playing
+                          ? <Pause size={28} fill="white" />
+                          : <Play size={28} fill="white" />}
+                    </button>
+                    <button onClick={() => playNext(1)}
+                      className="w-12 h-12 rounded-full flex items-center justify-center"
+                      style={{ background: "rgba(255,255,255,0.1)" }}>
+                      <SkipForward size={22} />
+                    </button>
+                    <button onClick={() => { setRepeat(r => !r); showToast(repeat ? "تکرار خاموش" : "تکرار روشن"); }}>
+                      <Repeat size={20} color={repeat ? bgGrad[1] : "rgba(255,255,255,0.35)"} />
+                    </button>
+                  </div>
+
+                  {/* Volume */}
+                  <div className="mt-5 w-full flex items-center gap-3">
+                    <Volume2 size={16} color="rgba(255,255,255,0.35)" />
+                    <input type="range" min={0} max={100} value={vol}
+                      onChange={e => setVol(Number(e.target.value))}
+                      className="flex-1" />
+                  </div>
+                </motion.div>
+              ) : (
+                /* Lyrics placeholder */
+                <motion.div key="lyrics"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                  className="flex-1 overflow-y-auto px-8 pt-6 pb-4 flex flex-col items-center">
+                  <p className="text-xs text-white/35 mb-8">متن آهنگ</p>
+                  <p className="text-center text-white/30 text-sm leading-8">
+                    متن آهنگ از API در دسترس نیست.<br />
+                    می‌تونی از lyric_id برای گرفتن متن استفاده کنی.
+                  </p>
+                  <p className="mt-4 text-xs font-mono text-white/20">lyric_id: {current.lyric_id}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* انتخاب منبع */}
+      {/* ── Mini Player ─────────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {current && !showFull && (
+          <motion.div
+            initial={{ y: 80 }} animate={{ y: 0 }} exit={{ y: 80 }}
+            onClick={() => setShowFull(true)}
+            className="fixed bottom-[60px] left-3 right-3 z-30 overflow-hidden rounded-[20px] cursor-pointer"
+            style={{
+              background: `linear-gradient(135deg,${bgGrad[0]}cc,${bgGrad[1]}cc)`,
+              backdropFilter: "blur(20px)", border: "1px solid rgba(255,255,255,0.14)"
+            }}>
+            {/* progress bar */}
+            <div className="h-[2px]" style={{ background: "rgba(255,255,255,0.12)" }}>
+              <div className="h-full rounded-full bg-white/70" style={{ width: `${progress}%` }} />
+            </div>
+            <div className="flex items-center gap-3 p-3">
+              <CoverArt track={current} size={44} radius={12} />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">{current.name}</p>
+                <p className="text-[11px] text-white/55 truncate mt-0.5">{current.artist}</p>
+              </div>
+              <button onClick={e => { e.stopPropagation(); toggleFav(current); }}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,0.15)" }}>
+                <Heart size={16} fill={favIds.has(current.url_id) ? "#f43f5e" : "none"}
+                  color={favIds.has(current.url_id) ? "#f43f5e" : "white"} />
+              </button>
+              <button onClick={e => { e.stopPropagation(); togglePlay(); }}
+                className="w-9 h-9 rounded-full flex items-center justify-center bg-white">
+                {loadingUrl
+                  ? <Loader2 size={15} className="animate-spin text-black" />
+                  : playing
+                    ? <Pause size={15} fill="#000" color="#000" />
+                    : <Play size={15} fill="#000" color="#000" />}
+              </button>
+              <button onClick={e => { e.stopPropagation(); playNext(1); }}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(255,255,255,0.15)" }}>
+                <SkipForward size={15} />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Source Picker ───────────────────────────────────────────────── */}
       <AnimatePresence>
         {showSourcePicker && (
           <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowSourcePicker(false)}
-          >
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 flex items-end justify-center p-4"
+            style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(4px)" }}
+            onClick={() => setShowSourcePicker(false)}>
             <motion.div
-              initial={{ y: 120 }}
-              animate={{ y: 0 }}
-              exit={{ y: 120 }}
-              onClick={(e) => e.stopPropagation()}
-              className={`${glass} mx-4 mb-4 w-full max-w-[400px] rounded-[32px] p-4`}
-            >
-              <div className="mb-4 text-center">
-                <h3 className="text-lg font-bold">منبع جستجو</h3>
-                <p className="text-xs text-white/50">نت‌ایز برای پخش مطمئن توصیه می‌شود</p>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {SOURCES.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => {
-                      setSource(s.id);
-                      setShowSourcePicker(false);
-                      showToast(`منبع: ${s.name}`);
-                    }}
-                    className={`flex items-center gap-3 rounded-2xl p-3 text-right transition ${
-                      source === s.id ? "bg-white/20" : "bg-white/5 hover:bg-white/10"
-                    }`}
-                  >
-                    <span className="text-xl">{s.icon}</span>
-                    <span className="flex-1 text-sm font-medium">{s.name}</span>
-                    {source === s.id && <Check className="h-4 w-4 text-emerald-400" />}
-                  </button>
-                ))}
-              </div>
+              initial={{ y: 80 }} animate={{ y: 0 }} exit={{ y: 80 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-sm rounded-[28px] p-5"
+              style={{ background: "rgba(20,20,30,0.95)", border: "1px solid rgba(255,255,255,0.12)" }}>
+              <h3 className="text-base font-bold text-white mb-1">منبع جستجو</h3>
+              <p className="text-xs text-white/40 mb-4">نت‌ایز برای پخش مطمئن توصیه می‌شود</p>
+              {SOURCES.map(s => (
+                <button key={s.id}
+                  onClick={() => { setSource(s.id); setShowSourcePicker(false); showToast(`منبع: ${s.name}`); }}
+                  className="w-full flex items-center gap-3 rounded-2xl p-3 mb-2 text-right transition"
+                  style={{ background: source === s.id ? "rgba(255,255,255,0.14)" : "rgba(255,255,255,0.06)" }}>
+                  <span className="text-xl">{s.icon}</span>
+                  <span className="flex-1 text-sm font-medium text-white">{s.name}</span>
+                  {source === s.id && <span className="text-xs text-white/50">✓</span>}
+                </button>
+              ))}
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      <main className="relative z-10 mx-auto flex min-h-screen w-full max-w-[430px] flex-col px-4 pb-44 pt-4">
-        <header className="flex items-center justify-between py-2">
-          <button className={`${glass} grid h-11 w-11 place-items-center rounded-full`}>
-            <ChevronDown className="h-5 w-5" />
-          </button>
-          <div className="text-center">
-            <p className="text-[11px] text-white/55">پخش آنلاین • FLAC</p>
-            <h1 className="text-lg font-black tracking-tight">نُوا موزیک 🎵</h1>
-          </div>
-          <button onClick={() => setShowSourcePicker(true)} className={`${glass} grid h-11 w-11 place-items-center rounded-full`}>
-            <Globe className="h-5 w-5" />
-          </button>
-        </header>
+      {/* ── Page Content ────────────────────────────────────────────────── */}
+      <div className="relative z-10 pb-36">
 
-        {/* نشانگر منبع */}
-        <button
-          onClick={() => setShowSourcePicker(true)}
-          className={`${glass} mt-3 flex items-center justify-center gap-2 rounded-full px-4 py-2 text-sm`}
-        >
-          <span>{currentSource.icon}</span>
-          <span>{currentSource.name}</span>
-          <span className="text-white/40">•</span>
-          <span className="text-xs text-white/50">تغییر منبع</span>
-        </button>
-
-        {/* جستجو */}
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            runSearch();
-          }}
-          className={`${glass} mt-4 flex h-14 items-center gap-3 rounded-[28px] px-4`}
-        >
-          <Search className="h-5 w-5 text-white/70" />
-          <input
-            ref={searchRef}
-            value={query}
-            onFocus={() => setView("search")}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="جستجوی آهنگ یا خواننده..."
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-white/42"
-          />
-          {query && (
-            <button type="button" onClick={() => setQuery("")} className="rounded-full bg-white/10 p-1.5">
-              <X className="h-4 w-4" />
-            </button>
-          )}
-        </form>
-
-        {/* تگ‌های سریع ایرانی */}
-        <div className="no-scrollbar mt-5 flex gap-2 overflow-x-auto pb-1">
-          {QUICK_TAGS.map((t) => (
-            <button
-              key={t.query}
-              onClick={() => {
-                setQuery(t.label);
-                runSearch(t.query);
-              }}
-              className="shrink-0 rounded-full border border-white/12 bg-white/[0.07] px-3 py-2 text-xs text-white/75 backdrop-blur-xl transition hover:bg-white/15"
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-
-        {view === "home" ? (
-          <>
-            <section className="mt-7">
-              <div className="mb-3 flex items-end justify-between">
-                <div>
-                  <p className="text-xs text-white/50">صفحه اصلی</p>
-                  <h2 className="text-2xl font-black">موسیقی ایرانی 🇮🇷</h2>
-                </div>
-                <Sparkles className="h-5 w-5 text-amber-200" />
-              </div>
-
-              {heroTrack ? (
-                <motion.button
-                  initial={{ opacity: 0, y: 16 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  onClick={() => playTrack(heroTrack)}
-                  className="relative h-[340px] w-full overflow-hidden rounded-[42px] text-right"
-                >
-                  <Cover track={heroTrack} rounded="rounded-[42px]" className="absolute inset-0 h-full w-full" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black via-black/35 to-transparent" />
-                  <div className="absolute inset-x-4 bottom-4">
-                    <div className={`${glass} rounded-[30px] p-4`}>
-                      <div className="mb-3 flex items-center justify-between">
-                        <span className="rounded-full bg-white/18 px-3 py-1 text-[11px] text-white/85">پیشنهاد ویژه</span>
-                        <span className="flex items-center gap-1 rounded-full bg-rose-400/20 px-2 py-1 text-[10px] font-bold text-rose-100">
-                          <Zap className="h-3 w-3" /> کیفیت انتخابی
-                        </span>
-                      </div>
-                      <h3 className="line-clamp-1 text-2xl font-black">{heroTrack.name}</h3>
-                      <p className="line-clamp-1 text-sm text-white/65">{heroTrack.artist}</p>
-                    </div>
-                  </div>
-                </motion.button>
-              ) : loadingHome ? (
-                <div className={`${glass} h-[340px] animate-pulse rounded-[42px]`} />
-              ) : (
-                <div className={`${glass} grid h-[340px] place-items-center rounded-[42px] text-center`}>
-                  <div>
-                    <Music2 className="mx-auto mb-3 h-12 w-12 text-white/30" />
-                    <p className="text-white/50">موردی یافت نشد. جستجو کن.</p>
-                  </div>
-                </div>
-              )}
-            </section>
-
-            <TrackList
-              title="بهترین‌های ایرانی"
-              tracks={homeTracks.slice(0, 20)}
-              current={current}
-              playing={playing}
-              favIds={favoriteIds}
-              onPlay={playTrack}
-              onFav={toggleFavorite}
-              playBr={playInfo?.br}
-            />
-          </>
-        ) : (
-          <section className="mt-7">
-            <div className="mb-4 flex items-center justify-between">
+        {/* HOME */}
+        {view === "home" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 pt-14 pb-2">
               <div>
-                <p className="text-xs text-white/50">نتایج در {currentSource.name}</p>
-                <h2 className="text-2xl font-black">جستجو</h2>
+                <p className="text-xs text-white/38">نُوا موزیک</p>
+                <h1 className="text-2xl font-bold text-white mt-1">سلام 👋</h1>
               </div>
-            </div>
-
-            {loadingSearch ? (
-              <div className={`${glass} grid place-items-center rounded-[32px] py-12`}>
-                <Loader2 className="mb-2 h-7 w-7 animate-spin text-amber-100" />
-                <p className="text-sm text-white/60">در حال جستجو...</p>
-              </div>
-            ) : visibleTracks.length === 0 ? (
-              <div className={`${glass} rounded-[28px] p-6 text-center text-sm text-white/55`}>
-                نتیجه‌ای نیست. منبع یا کلمه دیگری امتحان کن.
-              </div>
-            ) : (
-              <TrackList
-                title=""
-                tracks={visibleTracks}
-                current={current}
-                playing={playing}
-                favIds={favoriteIds}
-                onPlay={playTrack}
-                onFav={toggleFavorite}
-                playBr={playInfo?.br}
-              />
-            )}
-          </section>
-        )}
-      </main>
-
-      {/* پلیر */}
-      <AnimatePresence>
-        {current && (
-          <motion.section
-            initial={{ opacity: 0, y: 60 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 60 }}
-            className={`${glass} fixed inset-x-0 bottom-[76px] z-40 mx-auto w-[calc(100%-24px)] max-w-[406px] rounded-[32px] p-3`}
-          >
-            {/* انتخاب کیفیت */}
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div className="flex items-center gap-1.5">
-                {QUALITIES.map((q) => {
-                  const activeQ = quality === q.key;
-                  return (
-                    <button
-                      key={q.key}
-                      onClick={() => changeQuality(q.key)}
-                      disabled={loadingUrl}
-                      className={`flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-bold transition disabled:opacity-50 ${
-                        activeQ
-                          ? q.key === "flac"
-                            ? "border-transparent bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-lg shadow-purple-500/30"
-                            : "border-white bg-white text-black"
-                          : "border-white/15 bg-white/5 text-white/60 hover:bg-white/10"
-                      }`}
-                    >
-                      {q.key === "flac" && <Zap className="h-3 w-3" />}
-                      {q.label}
-                    </button>
-                  );
-                })}
-              </div>
-              <div className="flex items-center gap-1 text-[10px] text-white/50">
-                {playInfo ? (
-                  <span className="rounded-full bg-emerald-500/20 px-2 py-1 font-bold text-emerald-200">
-                    {qualityLabel(playInfo.br)} kbps
-                  </span>
-                ) : loadingUrl ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : null}
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-              <Cover track={current} className="h-14 w-14" />
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-1 text-sm font-bold">{current.name}</p>
-                <p className="line-clamp-1 text-xs text-white/48">{current.artist}</p>
-                <div className="mt-1 flex items-center gap-2 text-[10px] text-white/50">
-                  <span>{formatTime(currentTime)}</span>
-                  <span>/</span>
-                  <span>{formatTime(duration)}</span>
-                </div>
-              </div>
-              <button onClick={togglePlay} className="grid h-12 w-12 shrink-0 place-items-center rounded-full bg-white text-black">
-                {loadingUrl ? <Loader2 className="h-5 w-5 animate-spin" /> : playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="mr-0.5 h-5 w-5 fill-current" />}
+              <button onClick={() => setShowSourcePicker(true)}
+                className="flex items-center gap-2 rounded-full px-3 py-2 text-sm"
+                style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
+                <span>{curSource.icon}</span>
+                <span className="text-white/70 text-xs">{curSource.name}</span>
               </button>
             </div>
 
-            <input
-              aria-label="progress"
-              type="range"
-              min="0"
-              max="100"
-              value={progress}
-              onChange={(e) => seek(e.target.value)}
-              className="mt-3 w-full accent-white"
-            />
-
-            <div className="mt-2 flex items-center justify-between text-white/70">
-              <button onClick={() => playNext(-1)}><SkipBack className="h-5 w-5" /></button>
-              <button onClick={() => playNext(1)}><SkipForward className="h-5 w-5" /></button>
-              <button onClick={() => showToast("پخش تصادفی")}><Shuffle className="h-5 w-5" /></button>
-              <Volume2 className="h-5 w-5" />
+            {/* Search bar */}
+            <div className="mx-5 mt-4 flex h-12 items-center gap-3 rounded-2xl px-4 cursor-pointer"
+              style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.10)" }}
+              onClick={() => setView("search")}>
+              <Search size={17} color="rgba(255,255,255,0.35)" />
+              <span className="text-sm text-white/28">جستجوی آهنگ یا خواننده...</span>
             </div>
-          </motion.section>
-        )}
-      </AnimatePresence>
 
-      {/* تب‌ها */}
-      <nav className="fixed inset-x-0 bottom-0 z-40 mx-auto max-w-[430px] px-3 pb-3">
-        <div className={`${glass} grid grid-cols-2 rounded-[28px] p-2`}>
-          <TabButton active={view === "home"} label="خانه" icon={<Home className="h-5 w-5" />} onClick={() => setView("home")} />
-          <TabButton active={view === "search"} label="جستجو" icon={<Search className="h-5 w-5" />} onClick={() => setView("search")} />
+            {/* Featured card */}
+            {homeTracks[0] && (
+              <div className="mx-5 mt-5 overflow-hidden rounded-[28px]"
+                style={{ background: `linear-gradient(135deg,${getGrad(homeTracks[0].url_id)[0]},${getGrad(homeTracks[0].url_id)[2]})` }}>
+                <div className="flex items-end gap-4 p-5 pt-16">
+                  <div className="rounded-[20px] overflow-hidden shadow-2xl ring-2 ring-white/20 shrink-0">
+                    <CoverArt track={homeTracks[0]} size={80} radius={20} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-semibold text-white/60 uppercase tracking-widest">پیشنهاد ویژه</p>
+                    <h3 className="text-[18px] font-bold text-white mt-1 leading-tight truncate">{homeTracks[0].name}</h3>
+                    <p className="text-sm text-white/65 truncate">{homeTracks[0].artist}</p>
+                    <button onClick={() => playTrack(homeTracks[0])}
+                      className="mt-3 flex items-center gap-2 rounded-full bg-white px-4 py-1.5 text-sm font-bold"
+                      style={{ color: getGrad(homeTracks[0].url_id)[0] }}>
+                      <Play size={13} fill="currentColor" /> پخش
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Artists row */}
+            <div className="mt-6">
+              <div className="flex items-center justify-between px-5 mb-3">
+                <h2 className="text-base font-bold text-white">خواننده‌ها</h2>
+              </div>
+              <div className="flex gap-4 overflow-x-auto px-5 pb-1 no-scrollbar">
+                {ARTIST_META.map(a => (
+                  <button key={a.query} onClick={() => openArtist(a)}
+                    className="flex flex-col items-center gap-2 shrink-0">
+                    <div className="w-16 h-16 rounded-full overflow-hidden ring-2 ring-white/12"
+                      style={{ background: `linear-gradient(135deg,${getGrad(a.query)[0]},${getGrad(a.query)[2]})`, display:"flex", alignItems:"center", justifyContent:"center" }}>
+                      <span className="text-2xl font-bold text-white/80">{a.label[0]}</span>
+                    </div>
+                    <span className="text-[11px] text-white/65 text-center whitespace-nowrap">{a.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Track list */}
+            <div className="mt-6 px-5">
+              <h2 className="text-base font-bold text-white mb-3">موسیقی ایرانی 🇮🇷</h2>
+              {loadingHome ? (
+                <div className="flex flex-col items-center gap-3 py-16">
+                  <Loader2 size={28} className="animate-spin text-white/30" />
+                  <p className="text-sm text-white/30">در حال بارگذاری...</p>
+                </div>
+              ) : (
+                homeTracks.map((t, i) => (
+                  <TrackRow key={t.url_id} track={t} index={i}
+                    isCurrent={current?.url_id === t.url_id}
+                    isPlaying={playing && current?.url_id === t.url_id}
+                    isFav={favIds.has(t.url_id)}
+                    onPlay={() => playTrack(t)} onFav={() => toggleFav(t)}
+                    accent={bgGrad[0]} />
+                ))
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* SEARCH */}
+        {view === "search" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="px-5 pt-14">
+            <h1 className="text-2xl font-bold text-white mb-4">جستجو</h1>
+            <form onSubmit={e => { e.preventDefault(); doSearch(query); }}
+              className="flex items-center gap-3 h-12 rounded-2xl px-4"
+              style={{ background: "rgba(255,255,255,0.09)", border: "1px solid rgba(255,255,255,0.13)" }}>
+              <Search size={17} color="rgba(255,255,255,0.4)" />
+              <input value={query} onChange={e => setQuery(e.target.value)}
+                placeholder="آهنگ، خواننده..." autoFocus
+                className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/30" />
+              {query && (
+                <button type="button" onClick={() => { setQuery(""); setSearchResults([]); }}>
+                  <X size={15} color="rgba(255,255,255,0.4)" />
+                </button>
+              )}
+            </form>
+
+            {/* Quick tags */}
+            <div className="flex flex-wrap gap-2 mt-4">
+              {QUICK_TAGS.map(t => (
+                <button key={t.query} onClick={() => { setQuery(t.label); doSearch(t.query); }}
+                  className="rounded-full px-3 py-1.5 text-xs text-white/65 transition"
+                  style={{ background: "rgba(255,255,255,0.07)", border: "1px solid rgba(255,255,255,0.10)" }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              {loadingSearch ? (
+                <div className="flex flex-col items-center gap-3 py-16">
+                  <Loader2 size={28} className="animate-spin text-white/30" />
+                  <p className="text-sm text-white/30">در حال جستجو...</p>
+                </div>
+              ) : searchResults.length > 0 ? (
+                <>
+                  <p className="text-xs text-white/35 mb-3">{searchResults.length} نتیجه</p>
+                  {searchResults.map((t, i) => (
+                    <TrackRow key={t.url_id} track={t} index={i}
+                      isCurrent={current?.url_id === t.url_id}
+                      isPlaying={playing && current?.url_id === t.url_id}
+                      isFav={favIds.has(t.url_id)}
+                      onPlay={() => playTrack(t)} onFav={() => toggleFav(t)}
+                      accent={bgGrad[0]} />
+                  ))}
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-2 py-16">
+                  <Search size={36} color="rgba(255,255,255,0.1)" />
+                  <p className="text-sm text-white/28">جستجو کن تا نتایج ببینی</p>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* ARTIST */}
+        {view === "artist" && selArtist && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div className="relative h-52 overflow-hidden"
+              style={{ background: `linear-gradient(135deg,${getGrad(selArtist.query)[0]},${getGrad(selArtist.query)[2]})` }}>
+              <div className="absolute inset-0" style={{ background: "linear-gradient(to bottom,transparent 30%,#06070b)" }} />
+              <button onClick={() => setView("home")}
+                className="absolute right-5 top-14 w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(0,0,0,0.4)", backdropFilter: "blur(8px)" }}>
+                <ArrowLeft size={17} />
+              </button>
+              <div className="absolute bottom-4 right-5">
+                <h2 className="text-3xl font-bold text-white">{selArtist.label}</h2>
+                <p className="text-sm text-white/55 mt-1">{selArtist.genre}</p>
+              </div>
+            </div>
+            <div className="flex gap-3 px-5 mt-4">
+              <button onClick={() => artistTracks[0] && playTrack(artistTracks[0])}
+                className="flex-1 flex items-center justify-center gap-2 h-11 rounded-[18px] text-sm font-bold text-white"
+                style={{ background: getGrad(selArtist.query)[0] }}>
+                <Play size={15} fill="white" /> پخش همه
+              </button>
+              <button onClick={() => setShuffle(s => !s)}
+                className="w-11 h-11 flex items-center justify-center rounded-[18px]"
+                style={{ background: "rgba(255,255,255,0.08)" }}>
+                <Shuffle size={17} color="rgba(255,255,255,0.7)" />
+              </button>
+            </div>
+            <div className="px-5 mt-4">
+              {loadingArtist ? (
+                <div className="flex flex-col items-center gap-3 py-12">
+                  <Loader2 size={26} className="animate-spin text-white/30" />
+                  <p className="text-sm text-white/30">در حال بارگذاری...</p>
+                </div>
+              ) : artistTracks.length > 0 ? artistTracks.map((t, i) => (
+                <TrackRow key={t.url_id} track={t} index={i}
+                  isCurrent={current?.url_id === t.url_id}
+                  isPlaying={playing && current?.url_id === t.url_id}
+                  isFav={favIds.has(t.url_id)}
+                  onPlay={() => playTrack(t)} onFav={() => toggleFav(t)}
+                  accent={bgGrad[0]} />
+              )) : (
+                <p className="text-center text-sm text-white/28 mt-10">آهنگی پیدا نشد</p>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* QUEUE */}
+        {view === "queue" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="px-5 pt-14">
+            <h1 className="text-2xl font-bold text-white mb-1">صف پخش</h1>
+            <p className="text-sm text-white/35 mb-5">{queue.length} آهنگ</p>
+            {queue.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16">
+                <ListMusic size={36} color="rgba(255,255,255,0.1)" />
+                <p className="text-sm text-white/28">صف پخش خالیه</p>
+              </div>
+            ) : queue.map((t, i) => (
+              <TrackRow key={t.url_id + i} track={t} index={i}
+                isCurrent={current?.url_id === t.url_id}
+                isPlaying={playing && current?.url_id === t.url_id}
+                isFav={favIds.has(t.url_id)}
+                onPlay={() => playTrack(t)} onFav={() => toggleFav(t)}
+                accent={bgGrad[0]} />
+            ))}
+          </motion.div>
+        )}
+
+        {/* HISTORY */}
+        {view === "history" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="px-5 pt-14">
+            <div className="flex items-center justify-between mb-1">
+              <h1 className="text-2xl font-bold text-white">تاریخچه</h1>
+              {history.length > 0 && (
+                <button onClick={() => { setHistory([]); showToast("تاریخچه پاک شد"); }}
+                  className="text-xs text-white/30">پاک کردن</button>
+              )}
+            </div>
+            <p className="text-sm text-white/35 mb-5">{history.length} آهنگ</p>
+            {history.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16">
+                <Clock size={36} color="rgba(255,255,255,0.1)" />
+                <p className="text-sm text-white/28">هنوز چیزی پخش نکردی</p>
+              </div>
+            ) : history.map((t, i) => (
+              <TrackRow key={t.url_id + i} track={t} index={i}
+                isCurrent={current?.url_id === t.url_id}
+                isPlaying={playing && current?.url_id === t.url_id}
+                isFav={favIds.has(t.url_id)}
+                onPlay={() => playTrack(t)} onFav={() => toggleFav(t)}
+                accent={bgGrad[0]} />
+            ))}
+          </motion.div>
+        )}
+
+        {/* FAVORITES */}
+        {view === "favorites" && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="px-5 pt-14">
+            <h1 className="text-2xl font-bold text-white mb-1">علاقه‌مندی‌ها</h1>
+            <p className="text-sm text-white/35 mb-5">{favorites.length} آهنگ</p>
+            {favorites.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 py-16">
+                <Heart size={36} color="rgba(255,255,255,0.1)" />
+                <p className="text-sm text-white/28">هنوز آهنگی لایک نکردی</p>
+              </div>
+            ) : favorites.map((t, i) => (
+              <TrackRow key={t.url_id} track={t} index={i}
+                isCurrent={current?.url_id === t.url_id}
+                isPlaying={playing && current?.url_id === t.url_id}
+                isFav={true}
+                onPlay={() => playTrack(t)} onFav={() => toggleFav(t)}
+                accent={bgGrad[0]} />
+            ))}
+          </motion.div>
+        )}
+      </div>
+
+      {/* ── Bottom Nav ───────────────────────────────────────────────────── */}
+      <div className="fixed bottom-0 left-0 right-0 z-20"
+        style={{ background: "rgba(6,7,11,0.88)", backdropFilter: "blur(24px)", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
+        <div className="flex items-center justify-around py-2 pb-4">
+          {([
+            { id: "home",      Icon: Home,      label: "خانه" },
+            { id: "search",    Icon: Search,    label: "جستجو" },
+            { id: "queue",     Icon: ListMusic, label: "صف" },
+            { id: "history",   Icon: Clock,     label: "تاریخچه" },
+            { id: "favorites", Icon: Heart,     label: "لایک" },
+          ] as { id: View; Icon: React.FC<any>; label: string }[]).map(({ id, Icon, label }) => {
+            const active = view === id;
+            const col = active ? bgGrad[0] : "rgba(255,255,255,0.3)";
+            return (
+              <button key={id} onClick={() => setView(id)}
+                className="flex flex-col items-center gap-1 px-3 py-1">
+                <Icon size={22} color={col}
+                  fill={active && id === "favorites" ? col : "none"} />
+                <span className="text-[10px] font-medium" style={{ color: col }}>{label}</span>
+              </button>
+            );
+          })}
         </div>
-      </nav>
+      </div>
+
+      <Toast msg={toast} />
     </div>
   );
 }
-
-function TabButton({ active, label, icon, onClick }: { active: boolean; label: string; icon: ReactNode; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className={`flex items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold transition ${active ? "bg-white text-black" : "text-white/55"}`}>
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-function TrackList({
-  title,
-  tracks,
-  current,
-  playing,
-  favIds,
-  onPlay,
-  onFav,
-  playBr,
-}: {
-  title: string;
-  tracks: GdTrack[];
-  current: GdTrack | null;
-  playing: boolean;
-  favIds: Set<string>;
-  onPlay: (t: GdTrack) => void;
-  onFav: (t: GdTrack) => void;
-  playBr?: number;
-}) {
-  if (tracks.length === 0) return null;
-  return (
-    <section className="mt-7">
-      {title && <h2 className="mb-3 text-xl font-black">{title}</h2>}
-      <div className="space-y-2">
-        {tracks.map((track, i) => {
-          const isCur = current?.url_id === track.url_id;
-          const isFav = favIds.has(track.url_id);
-          return (
-            <motion.article
-              key={`${track.url_id}-${i}`}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(i * 0.015, 0.4) }}
-              onClick={() => onPlay(track)}
-              className={`flex cursor-pointer items-center gap-3 rounded-[24px] border border-white/10 p-2.5 transition ${
-                isCur ? "bg-white/16" : "bg-white/[0.05] hover:bg-white/10"
-              }`}
-            >
-              <div className="relative h-14 w-14 shrink-0">
-                <Cover track={track} className="h-full w-full" />
-                {isCur && (
-                  <div className="absolute inset-0 grid place-items-center bg-black/40">
-                    {playing ? <Pause className="h-5 w-5 fill-current" /> : <Play className="mr-0.5 h-5 w-5 fill-current" />}
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className={`line-clamp-1 text-sm font-bold ${isCur ? "text-amber-200" : ""}`}>{track.name}</p>
-                <p className="line-clamp-1 text-xs text-white/45">{track.artist}</p>
-                <div className="mt-1 flex items-center gap-1.5 text-[9px] font-black text-white/50">
-                  {isCur && playBr ? (
-                    <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-emerald-200">{qualityLabel(playBr)}</span>
-                  ) : (
-                    <span className="rounded-full bg-white/10 px-1.5 py-0.5">۱۲۸ / ۳۲۰ / FLAC</span>
-                  )}
-                  <span className="rounded-full bg-white/10 px-1.5 py-0.5">{track.source}</span>
-                </div>
-              </div>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onFav(track);
-                }}
-                className="grid h-10 w-10 place-items-center rounded-full bg-white/7 text-white/70"
-              >
-                <Heart className={`h-5 w-5 ${isFav ? "fill-rose-400 text-rose-400" : ""}`} />
-              </button>
-            </motion.article>
-          );
-        })}
-      </div>
-    </section>
-  );
-}
-
-declare global {
-  interface Window {
-    __novaToast?: number;
-  }
-}
-
-export default App;
